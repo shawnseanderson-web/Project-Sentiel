@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Sentinel | Edge Node Terminal</title>
+    <style>
+        :root {
+            --bg-color: #0f172a; 
+            --panel-bg: #1e293b; 
+            --text-color: #f8fafc;
+            --accent-color: #38bdf8; 
+            --border-color: #334155; 
+            --success-color: #4ade80;
+        }
+        
+        body { 
+            margin: 0; 
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            background-color: var(--bg-color); 
+            color: var(--text-color); 
+            width: 100vw;
+            height: 100vh; 
+            overflow: hidden; 
+        }
+        
+        .workspace { 
+            display: flex; 
+            flex-direction: row; 
+            width: 100%; 
+            height: 100%; 
+        }
+        
+        .panel { 
+            width: 50%; 
+            display: flex; 
+            flex-direction: column; 
+            border-right: 1px solid var(--border-color); 
+            background-color: var(--panel-bg); 
+            height: 100%;
+        }
+        
+        .panel:last-child { 
+            border-right: none; 
+            background-color: var(--bg-color); 
+        }
+        
+        .panel-header { 
+            padding: 1rem; 
+            border-bottom: 1px solid var(--border-color); 
+            font-weight: 600; 
+            font-size: 0.85rem; 
+            color: var(--accent-color); 
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .console-output { 
+            flex: 1; 
+            padding: 1rem; 
+            overflow-y: auto; 
+            font-family: monospace; 
+            font-size: 0.9rem; 
+            line-height: 1.5; 
+        }
+
+        .console-input-area { 
+            padding: 1rem; 
+            border-top: 1px solid var(--border-color); 
+            display: flex; 
+            gap: 0.5rem; 
+        }
+
+        textarea, input { 
+            background-color: var(--bg-color); 
+            border: 1px solid var(--border-color); 
+            color: var(--text-color); 
+            padding: 0.5rem; 
+            border-radius: 4px; 
+            box-sizing: border-box; 
+        }
+
+        textarea { 
+            flex: 1; 
+            resize: none; 
+            font-family: inherit; 
+        }
+
+        button { 
+            background-color: var(--accent-color); 
+            color: var(--bg-color); 
+            border: none; 
+            padding: 0 1.5rem; 
+            border-radius: 4px; 
+            font-weight: 600; 
+            cursor: pointer; 
+            white-space: nowrap; 
+            transition: opacity 0.2s;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+
+        .form-container { 
+            padding: 1rem; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 1rem; 
+            overflow-y: auto; 
+        }
+
+        .form-group { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 0.25rem; 
+        }
+
+        label { 
+            font-size: 0.8rem; 
+            color: #94a3b8; 
+        }
+
+        input, textarea.form-input { 
+            background-color: var(--panel-bg); 
+            width: 100%; 
+        }
+
+        .status-msg { 
+            font-size: 0.85rem; 
+            margin-top: 0.5rem; 
+        }
+    </style>
+</head>
+<body>
+    <div class="workspace">
+        
+        <!-- Panel 1: Inference Engine Terminal (Left Side) -->
+        <div class="panel">
+            <div class="panel-header">Inference Engine Terminal</div>
+            <div class="console-output" id="consoleOutput">--- System Ready for Local Query Analysis ---</div>
+            <div class="console-input-area">
+                <textarea id="queryPrompt" rows="3" placeholder="Enter investigative extraction prompt..."></textarea>
+                <button id="sendBtn" onclick="submitQuery()">Execute</button>
+            </div>
+        </div>
+        
+        <!-- Panel 2: Knowledge Graph Module (Right Side) -->
+        <div class="panel">
+            <div class="panel-header">Knowledge Graph Export Module (Obsidian Linker)</div>
+            <div class="form-container">
+                <div class="form-group">
+                    <label>Primary Entity Name</label>
+                    <input type="text" id="entityName">
+                </div>
+                <div class="form-group">
+                    <label>Aliases (Comma Separated)</label>
+                    <input type="text" id="entityAliases">
+                </div>
+                <div class="form-group">
+                    <label>Connections (Comma Separated)</label>
+                    <input type="text" id="entityConnections">
+                </div>
+                <div class="form-group">
+                    <label>Source Case File Path</label>
+                    <input type="text" id="sourceFile">
+                </div>
+                <div class="form-group">
+                    <label>Extraction Intelligence Summary</label>
+                    <textarea id="entitySummary" class="form-input" rows="6"></textarea>
+                </div>
+                <button onclick="exportMarkdown()">Export to Vault Knowledge Graph</button>
+                <div id="statusMessage" class="status-msg"></div>
+            </div>
+        </div>
+        
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        const authHeaders = { 
+            'Content-Type': 'application/json',
+            'X-MFA-Verified': 'True',
+            'X-GFIPM-ICAC-Active': 'True',
+            'X-GFIPM-User-ID': 'Test_Admin_01'
+        };
+
+        async function submitQuery() {
+            const promptInput = document.getElementById('queryPrompt');
+            const outputConsole = document.getElementById('consoleOutput');
+            const sendBtn = document.getElementById('sendBtn');
+            const prompt = promptInput.value.trim();
+            if (!prompt) return;
+
+            sendBtn.disabled = true;
+            outputConsole.innerText += `\n\n>> User Query: ${prompt}\n>> Processing local inference...`;
+            
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: authHeaders,
+                    body: JSON.stringify({ prompt: prompt })
+                });
+                const data = await response.json();
+                outputConsole.innerText += `\n\n>> Output:\n${data.content || JSON.stringify(data)}`;
+            } catch (err) {
+                outputConsole.innerText += `\n\n❌ Error contacting backend container: ${err.message}`;
+            } finally {
+                sendBtn.disabled = false;
+                promptInput.value = '';
+                outputConsole.scrollTop = outputConsole.scrollHeight;
+            }
+        }
+
+        async function exportMarkdown() {
+            const statusMsg = document.getElementById('statusMessage');
+            const payload = {
+                entity_name: document.getElementById('entityName').value.trim(),
+                aliases: document.getElementById('entityAliases').value.split(',').map(s => s.trim()).filter(Boolean),
+                connections: document.getElementById('entityConnections').value.split(',').map(s => s.trim()).filter(Boolean),
+                source_file: document.getElementById('sourceFile').value.trim(),
+                summary: document.getElementById('entitySummary').value.trim()
+            };
+
+            if (!payload.entity_name || !payload.summary) {
+                statusMsg.style.color = '#f87171';
+                statusMsg.innerText = "⚠️ Primary Entity Name and Summary are required.";
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/export_markdown', {
+                    method: 'POST',
+                    headers: authHeaders,
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    statusMsg.style.color = 'var(--success-color)';
+                    statusMsg.innerText = `✅ Successfully generated: ${data.file}`;
+                } else {
+                    throw new Error(data.detail || "Export failed");
+                }
+            } catch (err) {
+                statusMsg.style.color = '#f87171';
+                statusMsg.innerText = `❌ Export error: ${err.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
