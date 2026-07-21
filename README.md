@@ -7,7 +7,7 @@ This repository contains the complete **Phase 1-3** implementation, featuring th
 **NOTE:**
 This project is in the very early stages and there is no promise it will work but I had an idea and needed
 to get as much out as I could before I forgot. This is created entirely in AI and there could be
-mistakes. My overall goal, was to provide a way (relatively inexpensively) for Law Enforsment
+mistakes. My overall goal, was to provide a way (relatively inexpensively) for Law Enforcement
 to be able to check for indexed files on departments servers around the world to assist in the
 locating and rescue of child sex abuse victims and children who have been trafficed. 
 
