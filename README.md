@@ -5,11 +5,11 @@
 This repository contains the complete **Phase 1-3** implementation, featuring the local Edge Inference Node (Spoke), the Central Federated Search Broker (Hub), the Project VIC automated media pipeline, and the Flower-based Federated Learning structure with Differential Privacy.
 
 **NOTE:**
-This project is in the very early stages and there is no promise it will work but I had an idea and needed
-to get as much out as I could before I forgot. This is created entirely in AI and there could be
-mistakes. My overall goal, was to provide a way (relatively inexpensively) for Law Enforcement
-to be able to check for indexed files on departments servers around the world to assist in the
-locating and rescue of child sex abuse victims and children who have been trafficed. 
+This project is in the very early stages and there is no promise it will work, but I had an idea and needed
+to get as much out as I could before I forgot. This is created entirely with AI and there could be
+mistakes. My overall goal was to provide a way (relatively inexpensively) for law enforcement 
+to check for indexed files on other departments' servers around the world to assist in the
+locating and rescue of child sex abuse victims and children who have been trafficked. 
 
 ---
 
