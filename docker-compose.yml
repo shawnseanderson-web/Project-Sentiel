@@ -1,0 +1,55 @@
+
+
+services:
+  # 1. The Core Hardware-Accelerated LLM Backend
+  inference-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentinel-inference-node
+    devices:
+      - /dev/dri:/dev/dri # Maps host Vulkan GPU drivers to the container
+    volumes:
+      - ./mock_evidence:/evidence:ro # Strictly read-only evidence mount
+    command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/qwen2.5-coder-7b-instruct-ghidra-v2-q4_k_m.ggufsudo "]
+    # command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/models/qwen-3.5-9b-instruct-q4_k_m.gguf"]
+    networks:
+      - sentinel-lan
+
+  # 2. The CJIS-Compliant API & WebUI
+  middleware-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.services
+    container_name: sentinel-middleware
+    environment:
+      # Directs traffic to the internal Docker network hostname of the inference engine
+      - LLAMA_API_URL=http://inference-engine:8080/completion 
+    ports:
+      - "3000:3000" # Only the UI is exposed to the host machine
+    volumes:
+      - ./knowledge_graph_exports:/app/knowledge_graph_exports # Read/Write for Obsidian exports
+      - ./cjis_audit.log:/app/cjis_audit.log # Append-only audit log
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000"]
+    depends_on:
+      - inference-engine
+    networks:
+      - sentinel-lan
+
+  # 3. The Automated Project VIC Watchdog
+  media-pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile.services
+    container_name: sentinel-media-pipeline
+    volumes:
+      - ./mock_evidence:/app/mock_evidence:ro # Strictly read-only evidence mount
+      - ./mock_vics_database.json:/app/mock_vics_database.json:ro
+    command: ["python", "media_pipeline.py"]
+    networks:
+      - sentinel-lan
+
+# Define the isolated internal network
+networks:
+  sentinel-lan:
+    driver: bridge

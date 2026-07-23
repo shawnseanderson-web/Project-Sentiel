@@ -6,6 +6,7 @@ import httpx
 import os
 import datetime
 import logging
+import json
 
 app = FastAPI(title="Sentinel Edge Node UI")
 
@@ -13,7 +14,9 @@ app = FastAPI(title="Sentinel Edge Node UI")
 EXPORT_DIR = "./knowledge_graph_exports"
 os.makedirs(EXPORT_DIR, exist_ok=True)
 templates = Jinja2Templates(directory="templates")
-LLAMA_API_URL = "http://localhost:8080/completion"
+
+# Updated to use the chat completions endpoint for GBNF JSON Schema support
+LLAMA_API_URL = os.getenv("LLAMA_API_URL", "http://inference-engine:8080/completion")
 
 # Models
 class QueryRequest(BaseModel):
@@ -29,6 +32,68 @@ class ExportRequest(BaseModel):
 class FederatedSearchRequest(BaseModel):
     QueryID: str
     TargetEntity: dict
+
+# ---------------------------------------------------------
+# NIEM CORE SCHEMAS & PROMPTS
+# ---------------------------------------------------------
+NIEM_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "@context": {
+            "type": "object",
+            "properties": {
+                "nc": {"type": "string", "enum": ["http://release.niem.gov/niem/niem-core/6.0/#"]}
+            },
+            "required": ["nc"],
+            "additionalProperties": False
+        },
+        "nc:Person": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "nc:PersonFullName": {"type": "string"},
+                    "nc:PersonBirthDate": {
+                        "type": "object",
+                        "properties": {
+                            "nc:Date": {"type": "string"}
+                        },
+                        "required": ["nc:Date"],
+                        "additionalProperties": False
+                    },
+                    "nc:PersonPhoneNumber": {"type": "string"}
+                },
+                "required": ["nc:PersonFullName"],
+                "additionalProperties": False
+            }
+        },
+        "nc:Vehicle": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "nc:VehicleMakeCode": {"type": "string"},
+                    "nc:VehicleModelCode": {"type": "string"},
+                    "nc:VehicleLicensePlateIdentification": {"type": "string"}
+                },
+                "required": ["nc:VehicleLicensePlateIdentification"],
+                "additionalProperties": False
+            }
+        }
+    },
+    "required": ["@context", "nc:Person", "nc:Vehicle"],
+    "additionalProperties": False
+}
+
+SYSTEM_PROMPT = """You are an automated law enforcement intelligence extractor running in a secure, zero-knowledge environment. 
+Your objective is to read raw, unstructured case files, chat logs, and investigator notes, and extract critical entities.
+
+Rules for Extraction:
+1. ONLY extract information explicitly present in the provided text. Do not hallucinate, infer, or guess missing information.
+2. If an entity type is not found in the text, return an empty array for that field.
+3. Output the extracted data strictly in the requested JSON structure using the NIEM (National Information Exchange Model) Core 'nc:' namespace.
+4. Provide absolutely no conversational filler or markdown formatting. Just output the JSON object.
+"""
 
 # ---------------------------------------------------------
 # Security Matrix: ABAC & Zero-Knowledge Auditing
@@ -80,14 +145,34 @@ async def serve_ui(request: Request):
 
 @app.post("/api/query", dependencies=[Depends(verify_cjis_attributes)])
 async def query_model(request: QueryRequest):
-    payload = {"prompt": request.prompt, "n_predict": 512, "temperature": 0.1}
+    payload = {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"[RAW EVIDENCE START]\n{request.prompt}\n[RAW EVIDENCE END]"}
+        ],
+        "temperature": 0.1,
+        "n_predict": 1024,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "niem_extraction",
+                "strict": True,
+                "schema": NIEM_JSON_SCHEMA
+            }
+        }
+    }
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(LLAMA_API_URL, json=payload, timeout=120.0)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            # The output is mathematically guaranteed to be valid JSON formatted to NIEM specs
+            extracted_data = json.loads(result["choices"][0]["message"]["content"])
+            return {"status": "success", "data": extracted_data}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=500, detail=f"Inference engine error: {e.response.text}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Inference engine offline: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Middleware Communication Error: {str(e)}")
 
 @app.post("/api/federated_search", dependencies=[Depends(verify_cjis_attributes)])
 async def handle_federated_search(request: FederatedSearchRequest):

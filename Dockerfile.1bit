@@ -1,0 +1,29 @@
+# Minimal Alpine build for 1-bit PrismML/Bonsai models
+FROM alpine:3.18 as builder
+
+# Install build dependencies
+RUN apk add --no-cache build-base cmake git linux-headers \
+    vulkan-loader vulkan-headers glslang
+
+WORKDIR /build
+
+# Clone the custom PrismML fork required for 1-bit/ternary inference
+RUN git clone https://github.com/PrismML-Eng/llama.cpp.git .
+
+# Build with Vulkan support for local acceleration
+RUN cmake -B build -DGGML_VULKAN=1 -DBUILD_SHARED_LIBS=OFF && \
+    cmake --build build --config Release -j$(nproc)
+
+FROM alpine:3.18
+RUN apk add --no-cache libstdc++ vulkan-loader
+
+WORKDIR /app
+COPY --from=builder /build/build/bin/llama-server /usr/local/bin/
+
+# Strict isolated volumes for chain of custody
+VOLUME /models
+VOLUME /evidence
+
+EXPOSE 8080
+
+ENTRYPOINT ["llama-server"]

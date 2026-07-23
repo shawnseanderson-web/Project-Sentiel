@@ -1,0 +1,22 @@
+# Minimal Python runtime for Sentinel microservices
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install system dependencies required for image hashing (Pillow/imagehash)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy all project scripts into the container
+COPY . .
+
+# Create a non-root user for CJIS compliance
+RUN addgroup --system sentinel && adduser --system --group sentinel
+RUN chown -R sentinel:sentinel /app
+USER sentinel
