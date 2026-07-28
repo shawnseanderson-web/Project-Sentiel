@@ -8,3 +8,6 @@ Pillow
 imagehash
 flwr
 numpy
+aiofiles
+asyncpg
+python-multipart

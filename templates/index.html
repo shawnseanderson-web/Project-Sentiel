@@ -6,247 +6,699 @@
     <title>Project Sentinel | Edge Node Terminal</title>
     <style>
         :root {
-            --bg-color: #0f172a; 
-            --panel-bg: #1e293b; 
-            --text-color: #f8fafc;
-            --accent-color: #38bdf8; 
-            --border-color: #334155; 
-            --success-color: #4ade80;
+            --bg-color: #0f172a;
+            --panel-bg: #1e293b;
+            --text-color: #f1f5f9;
+            --muted-text: #94a3b8;
+            --accent-color: #0284c7;
+            --accent-hover: #0369a1;
+            --border-color: #334155;
+            --success-color: #10b981;
+            --error-color: #ef4444;
+            --dropzone-bg: #0b1120;
+            --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --font-mono: "Fira Code", Consolas, Monaco, monospace;
         }
-        
-        body { 
-            margin: 0; 
+
+        body {
+            margin: 0;
             padding: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            background-color: var(--bg-color); 
-            color: var(--text-color); 
+            font-family: var(--font-main);
+            background-color: var(--bg-color);
+            color: var(--text-color);
             width: 100vw;
-            height: 100vh; 
-            overflow: hidden; 
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
-        
-        .workspace { 
-            display: flex; 
-            flex-direction: row; 
-            width: 100%; 
-            height: 100%; 
+
+        /* Top Application Bar */
+        .app-header {
+            background-color: #0b1120;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
         }
-        
-        .panel { 
-            width: 50%; 
-            display: flex; 
-            flex-direction: column; 
-            border-right: 1px solid var(--border-color); 
-            background-color: var(--panel-bg); 
+
+        .app-branding {
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 0.05em;
+            color: #e2e8f0;
+        }
+
+        .system-status {
+            font-size: 0.8rem;
+            color: var(--success-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            height: 8px;
+            width: 8px;
+            background-color: var(--success-color);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--success-color);
+        }
+
+        /* Main Layout Layout */
+        .main-layout {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Side Navigation Rail */
+        .nav-rail {
+            width: 250px;
+            background-color: #0b1120;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 1rem 0;
+        }
+
+        .nav-item {
+            padding: 1rem 1.5rem;
+            color: var(--muted-text);
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9rem;
+            border-left: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .nav-item:hover {
+            background-color: var(--panel-bg);
+            color: var(--text-color);
+        }
+
+        .nav-item.active {
+            background-color: var(--panel-bg);
+            color: var(--accent-color);
+            border-left: 3px solid var(--accent-color);
+        }
+
+        /* Workspace Panels */
+        .workspace {
+            flex: 1;
+            position: relative;
+            background-color: var(--panel-bg);
+        }
+
+        .panel {
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            width: 100%;
             height: 100%;
         }
-        
-        .panel:last-child { 
-            border-right: none; 
-            background-color: var(--bg-color); 
+
+        .panel.active {
+            display: flex; /* Shown when active */
         }
-        
-        .panel-header { 
-            padding: 1rem; 
-            border-bottom: 1px solid var(--border-color); 
-            font-weight: 600; 
-            font-size: 0.85rem; 
-            color: var(--accent-color); 
+
+        .panel-header {
+            padding: 1.5rem 2rem 0.5rem;
+        }
+
+        .panel-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #38bdf8;
             text-transform: uppercase;
             letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
         }
 
-        .console-output { 
-            flex: 1; 
-            padding: 1rem; 
-            overflow-y: auto; 
-            font-family: monospace; 
-            font-size: 0.9rem; 
-            line-height: 1.5; 
+        .panel-instruction {
+            font-size: 0.9rem;
+            color: var(--muted-text);
+            line-height: 1.4;
+            margin: 0;
         }
 
-        .console-input-area { 
-            padding: 1rem; 
-            border-top: 1px solid var(--border-color); 
-            display: flex; 
-            gap: 0.5rem; 
+        /* Inputs & Buttons */
+        .console-output {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            background-color: #0b1120;
+            margin: 1rem 2rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: #cbd5e1;
         }
 
-        textarea, input { 
-            background-color: var(--bg-color); 
-            border: 1px solid var(--border-color); 
-            color: var(--text-color); 
-            padding: 0.5rem; 
-            border-radius: 4px; 
-            box-sizing: border-box; 
+        .console-input-area, .form-container {
+            padding: 1.5rem 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
         }
 
-        textarea { 
-            flex: 1; 
-            resize: none; 
-            font-family: inherit; 
+        textarea, input {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-family: var(--font-main);
+            width: 100%;
+            box-sizing: border-box;
         }
 
-        button { 
-            background-color: var(--accent-color); 
-            color: var(--bg-color); 
-            border: none; 
-            padding: 0 1.5rem; 
-            border-radius: 4px; 
-            font-weight: 600; 
-            cursor: pointer; 
-            white-space: nowrap; 
-            transition: opacity 0.2s;
-        }
-        
-        button:hover {
-            opacity: 0.9;
+        textarea:focus, input:focus {
+            outline: none;
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 1px #38bdf8;
         }
 
-        .form-container { 
-            padding: 1rem; 
-            display: flex; 
-            flex-direction: column; 
-            gap: 1rem; 
-            overflow-y: auto; 
+        button {
+            background-color: var(--accent-color);
+            color: #ffffff;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: fit-content;
         }
 
-        .form-group { 
-            display: flex; 
-            flex-direction: column; 
-            gap: 0.25rem; 
+        button:hover:not(:disabled) { background-color: var(--accent-hover); }
+        button:disabled { background-color: var(--border-color); cursor: not-allowed; }
+
+        /* Embedded Instruction Blocks */
+        .instruction-block {
+            background-color: rgba(2, 132, 199, 0.05);
+            border-left: 3px solid var(--accent-color);
+            padding: 1rem 1.25rem;
+            margin: 1.5rem 2rem 0;
+            border-radius: 0 6px 6px 0;
+            font-size: 0.85rem;
+            color: #cbd5e1;
+            line-height: 1.5;
         }
 
-        label { 
-            font-size: 0.8rem; 
-            color: #94a3b8; 
+        .instruction-block strong {
+            color: #38bdf8;
+            font-weight: 600;
+            letter-spacing: 0.02em;
         }
 
-        input, textarea.form-input { 
-            background-color: var(--panel-bg); 
-            width: 100%; 
+        .instruction-block ul {
+            margin: 0.5rem 0 0 0;
+            padding-left: 1.25rem;
         }
 
-        .status-msg { 
-            font-size: 0.85rem; 
-            margin-top: 0.5rem; 
+        .instruction-block li {
+            margin-bottom: 0.35rem;
         }
+
+        .instruction-block li:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Dropzone Specific Styles */
+        .dropzone {
+            flex: 1;
+            margin: 1rem 2rem 2rem;
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            background-color: var(--dropzone-bg);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted-text);
+            transition: all 0.2s ease;
+        }
+
+        .dropzone.dragover {
+            border-color: var(--accent-color);
+            background-color: rgba(2, 132, 199, 0.1);
+            color: var(--accent-color);
+        }
+
+        .drop-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .form-group { display: flex; flex-direction: column; gap: 0.4rem; }
+        label { font-size: 0.85rem; font-weight: 500; color: #e2e8f0; }
+        .log-sys { color: var(--muted-text); }
     </style>
 </head>
 <body>
-    <div class="workspace">
-        
-        <!-- Panel 1: Inference Engine Terminal (Left Side) -->
-        <div class="panel">
-            <div class="panel-header">Inference Engine Terminal</div>
-            <div class="console-output" id="consoleOutput">--- System Ready for Local Query Analysis ---</div>
-            <div class="console-input-area">
-                <textarea id="queryPrompt" rows="3" placeholder="Enter investigative extraction prompt..."></textarea>
-                <button id="sendBtn" onclick="submitQuery()">Execute</button>
+
+    <header class="app-header">
+        <div class="app-branding">PROJECT SENTINEL</div>
+        <div class="system-status">
+            <div class="status-dot"></div>
+            Edge Node: Online
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <!-- Sidebar Navigation -->
+        <div class="nav-rail">
+            <div class="nav-item active" onclick="switchTab('extraction-panel', this)">
+                📝 Text Extraction
+            </div>
+            <div class="nav-item" onclick="switchTab('media-panel', this)">
+                🛡️ Media Pipeline
+            </div>
+            <div class="nav-item" onclick="switchTab('ingest-panel', this)">
+                💾 Evidence Ingestion
+            </div>
+            <div class="nav-item" onclick="switchTab('graph-panel', this)">
+                🕸️ Knowledge Graph
             </div>
         </div>
-        
-        <!-- Panel 2: Knowledge Graph Module (Right Side) -->
-        <div class="panel">
-            <div class="panel-header">Knowledge Graph Export Module (Obsidian Linker)</div>
-            <div class="form-container">
-                <div class="form-group">
-                    <label>Primary Entity Name</label>
-                    <input type="text" id="entityName">
-                </div>
-                <div class="form-group">
-                    <label>Aliases (Comma Separated)</label>
-                    <input type="text" id="entityAliases">
-                </div>
-                <div class="form-group">
-                    <label>Connections (Comma Separated)</label>
-                    <input type="text" id="entityConnections">
-                </div>
-                <div class="form-group">
-                    <label>Source Case File Path</label>
-                    <input type="text" id="sourceFile">
-                </div>
-                <div class="form-group">
-                    <label>Extraction Intelligence Summary</label>
-                    <textarea id="entitySummary" class="form-input" rows="6"></textarea>
-                </div>
-                <button onclick="exportMarkdown()">Export to Vault Knowledge Graph</button>
-                <div id="statusMessage" class="status-msg"></div>
+
+        <!-- Workspace Area -->
+                <div class="workspace">
+
+                    <!-- Panel 1: Forensic Extraction -->
+                    <div class="panel active" id="extraction-panel">
+                        <div class="panel-header">
+                            <div class="panel-title">Forensic Extraction Engine</div>
+                            <p class="panel-instruction">Automated entity resolution and structured data compilation.</p>
+                        </div>
+
+                        <div class="instruction-block">
+                            <strong>OPERATIONAL GUIDE:</strong>
+                            <ul>
+                                <li><strong>Purpose:</strong> Converts unstructured field notes, arrest narratives, or chat transcripts into strict National Information Exchange Model (NIEM) JSON data.</li>
+                                <li><strong>Process:</strong> Paste raw text into the console below. The local LLM will isolate distinct entities (Persons, Vehicles, Dates) without hallucinating missing data.</li>
+                                <li><strong>Security:</strong> All inference runs locally on this node's hardware. Zero case data is transmitted externally.</li>
+                            </ul>
+                        </div>
+
+                        <div class="console-output" id="consoleOutput">
+                            <span class="log-sys">--- Local Engine Initialized. Awaiting Input. ---</span>
+                        </div>
+                        <div class="console-input-area">
+                            <textarea id="queryPrompt" rows="3" placeholder="Enter case narrative here (e.g., 'On 10/24/2026, officers located a stolen blue Toyota Camry...')"></textarea>
+                            <button id="sendBtn" onclick="submitQuery()">Execute Extraction</button>
+                        </div>
+                    </div>
+
+                    <!-- Panel 2: Media Ingestion Dropzone -->
+                    <div class="panel" id="media-panel">
+                        <div class="panel-header">
+                            <div class="panel-title">VIC Media Pipeline</div>
+                            <p class="panel-instruction">Secure automated triage for suspected illicit digital media.</p>
+                        </div>
+
+                        <div class="instruction-block">
+                            <strong>OPERATIONAL GUIDE:</strong>
+                            <ul>
+                                <li><strong>Purpose:</strong> Rapidly screens digital evidence against known Project VIC hash databases to intercept illicit material before human review.</li>
+                                <li><strong>Cryptographic (SHA-256):</strong> Identifies exact, byte-for-byte matches of known contraband.</li>
+                                <li><strong>Perceptual (pHash):</strong> Detects visually similar images, even if they have been resized, cropped, or slightly altered by suspects.</li>
+                                <li><strong>Security:</strong> Files are hashed purely in-memory. Unmatched files are immediately dropped; matches trigger a CJIS audit log event.</li>
+                            </ul>
+                        </div>
+
+                        <div class="dropzone" id="dropzone">
+                            <div class="drop-icon">📁</div>
+                            <h3>Drag & Drop Evidence Files Here</h3>
+                            <p>Supports .JPG, .PNG, .MP4, .MOV</p>
+                            <input type="file" id="fileInput" style="display: none;" multiple>
+                            <button onclick="document.getElementById('fileInput').click()" style="margin-top: 1rem; background-color: var(--panel-bg); border: 1px solid var(--border-color);">Or Browse Files</button>
+                        </div>
+                    </div>
+
+                    <!-- Panel 3: Knowledge Graph -->
+                    <div class="panel" id="graph-panel">
+                        <div class="panel-header">
+                            <div class="panel-title">Knowledge Graph Linker</div>
+                            <p class="panel-instruction">Compile extracted intelligence for visual mapping.</p>
+                        </div>
+
+                        <div class="instruction-block">
+                            <strong>OPERATIONAL GUIDE:</strong>
+                            <ul>
+                                <li><strong>Purpose:</strong> Bridges the gap between raw data and visual intelligence by formatting extracted entities into Obsidian-ready Markdown nodes.</li>
+                                <li><strong>Linking:</strong> Use the "Connections" field to automatically generate bi-directional <code>[[Wikilinks]]</code> to other suspects, vehicles, or case files.</li>
+                                <li><strong>Output:</strong> Generates a `.md` file directly into your host machine's export directory, ready to be visually mapped in your local vault.</li>
+                            </ul>
+                        </div>
+
+                        <div class="form-container">
+                            <div class="form-group">
+                                <label>Primary Entity Name</label>
+                                <input type="text" id="entityName" placeholder="e.g., DOE, John">
+                            </div>
+                            <div class="form-group">
+                                <label>Known Aliases</label>
+                                <input type="text" id="entityAliases" placeholder="Separate with commas (e.g., 'Spike', 'JD')">
+                            </div>
+                            <div class="form-group">
+                                <label>Graph Connections</label>
+                                <input type="text" id="entityConnections" placeholder="Associated files or entities (e.g., Case_4092, Blue_Toyota)">
+                            </div>
+                            <div class="form-group">
+                                <label>Source Evidence Reference</label>
+                                <input type="text" id="sourceFile" placeholder="e.g., /mock_evidence/report_09.pdf">
+                            </div>
+                            <div class="form-group">
+                                <label>Intelligence Summary</label>
+                                <textarea id="entitySummary" rows="4" placeholder="Paste the generated JSON extraction or provide a brief investigator summary..."></textarea>
+                            </div>
+                            <button onclick="exportMarkdown()">Generate Vault File</button>
+                            <div id="statusMessage" class="status-msg"></div>
+                        </div>
+                    </div>
+                    <!-- Panel 4: Database Ingestion -->
+              <div class="panel" id="ingest-panel">
+                  <div class="panel-header">
+                      <div class="panel-title">Database Hash Ingestion</div>
+                      <p class="panel-instruction">Extract and save hashes from confirmed illicit files to the local database.</p>
+                  </div>
+
+                  <div class="instruction-block">
+                      <strong>OPERATIONAL GUIDE:</strong>
+                      <ul>
+                          <li><strong>Purpose:</strong> Populates the local PostgreSQL database with new threat hashes.</li>
+                          <li><strong>Security:</strong> The physical file is hashed in memory and instantly discarded. Only the mathematical hashes are retained in the database.</li>
+                      </ul>
+                  </div>
+
+                  <div class="form-container">
+                      <div class="form-group">
+                          <label>Originating Case ID</label>
+                          <input type="text" id="ingestCaseId" placeholder="e.g., CASE-2026-042">
+                      </div>
+
+                      <div class="form-group">
+                          <label>Threat Classification</label>
+                          <input type="text" id="ingestClass" placeholder="e.g., CSAM, TERRORISM, INTEL" value="CSAM">
+                      </div>
+
+                      <div class="form-group" style="margin-top: 1rem;">
+                          <label>Target File</label>
+                          <input type="file" id="ingestFile" style="background-color: var(--panel-bg); border: 1px dashed var(--border-color); padding: 2rem; text-align: center; cursor: pointer;">
+                      </div>
+
+                      <button id="ingestBtn" onclick="ingestToDatabase()" style="margin-top: 1rem;">Compute Hashes & Save to DB</button>
+                      <div id="ingestStatusMsg" class="status-msg"></div>
+                  </div>
+              </div>
             </div>
-        </div>
-        
-    </div>
 
-    <!-- Application Logic -->
-    <script>
-        const authHeaders = { 
-            'Content-Type': 'application/json',
-            'X-MFA-Verified': 'True',
-            'X-GFIPM-ICAC-Active': 'True',
-            'X-GFIPM-User-ID': 'Test_Admin_01'
-        };
+            <!-- Application Logic -->
+              <script>
+                  const authHeaders = {
+                      'Content-Type': 'application/json',
+                      'X-MFA-Verified': 'True',
+                      'X-GFIPM-ICAC-Active': 'True',
+                      'X-GFIPM-User-ID': 'Investigator_UI'
+                  };
 
-        async function submitQuery() {
+                  // --- TAB SWITCHING LOGIC ---
+                  function switchTab(panelId, navElement) {
+                      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                      document.getElementById(panelId).classList.add('active');
+                      navElement.classList.add('active');
+                  }
+
+                  // --- FORENSIC TEXT EXTRACTION LOGIC ---
+                  function appendToConsole(text, type = 'sys') {
+                      const outputConsole = document.getElementById('consoleOutput');
+                      const span = document.createElement('span');
+                      span.className = `log-${type}`;
+                      span.innerText = text + '\n';
+                      outputConsole.appendChild(span);
+                      outputConsole.scrollTop = outputConsole.scrollHeight;
+                  }
+
+          async function submitQuery() {
             const promptInput = document.getElementById('queryPrompt');
-            const outputConsole = document.getElementById('consoleOutput');
             const sendBtn = document.getElementById('sendBtn');
             const prompt = promptInput.value.trim();
             if (!prompt) return;
 
             sendBtn.disabled = true;
-            outputConsole.innerText += `\n\n>> User Query: ${prompt}\n>> Processing local inference...`;
-            
+            sendBtn.innerText = "Processing via LLM...";
+            appendToConsole(`\n> Analyzing: "${prompt.substring(0, 50)}..."`, 'user');
+
             try {
                 const response = await fetch('/api/query', {
                     method: 'POST',
                     headers: authHeaders,
                     body: JSON.stringify({ prompt: prompt })
                 });
-                const data = await response.json();
-                outputConsole.innerText += `\n\n>> Output:\n${data.content || JSON.stringify(data)}`;
+
+                const rawText = await response.text();
+                let data;
+
+                try {
+                    data = JSON.parse(rawText);
+                } catch (parseErr) {
+                    throw new Error(`Server returned a non-JSON response. Raw output:\n${rawText.substring(0, 200)}`);
+                }
+
+                if (!response.ok) {
+                    throw new Error(data.detail || `Server returned HTTP ${response.status}`);
+                }
+
+                // UX FIX: Translate the NIEM JSON into a human-readable summary
+                let outputString = `\n[EXTRACTION COMPLETE]\n`;
+                const extracted = data.data;
+
+                if (extracted && extracted['@context']) {
+                    const persons = extracted['nc:Person'] || [];
+                    const vehicles = extracted['nc:Vehicle'] || [];
+
+                    outputString += `\n👤 PERSONS DETECTED:\n`;
+                    if (persons.length === 0) outputString += `   - None found\n`;
+                    persons.forEach(p => {
+                        const name = p['nc:PersonFullName'] || 'Unknown';
+                        const dob = p['nc:PersonBirthDate']?.['nc:Date'] || 'N/A';
+                        const phone = p['nc:PersonPhoneNumber'] || 'N/A';
+                        outputString += `   - ${name} | DOB: ${dob} | Phone: ${phone}\n`;
+                    });
+
+                    outputString += `\n🚗 VEHICLES DETECTED:\n`;
+                    if (vehicles.length === 0) outputString += `   - None found\n`;
+                    vehicles.forEach(v => {
+                        const make = v['nc:VehicleMakeCode'] || 'Unknown';
+                        const model = v['nc:VehicleModelCode'] || 'Unknown';
+                        const plate = v['nc:VehicleLicensePlateIdentification'] || 'Unknown';
+                        outputString += `   - Make: ${make} | Model: ${model} | Plate: ${plate}\n`;
+                    });
+                } else {
+                    // Fallback if the data doesn't match the expected schema
+                    outputString += JSON.stringify(extracted, null, 2);
+                }
+
+                appendToConsole(outputString, 'data');
+
             } catch (err) {
-                outputConsole.innerText += `\n\n❌ Error contacting backend container: ${err.message}`;
+                appendToConsole(`\n[ERROR] Connection failed: ${err.message}`, 'error');
             } finally {
                 sendBtn.disabled = false;
+                sendBtn.innerText = "Execute Extraction";
                 promptInput.value = '';
-                outputConsole.scrollTop = outputConsole.scrollHeight;
             }
         }
 
-        async function exportMarkdown() {
-            const statusMsg = document.getElementById('statusMessage');
-            const payload = {
-                entity_name: document.getElementById('entityName').value.trim(),
-                aliases: document.getElementById('entityAliases').value.split(',').map(s => s.trim()).filter(Boolean),
-                connections: document.getElementById('entityConnections').value.split(',').map(s => s.trim()).filter(Boolean),
-                source_file: document.getElementById('sourceFile').value.trim(),
-                summary: document.getElementById('entitySummary').value.trim()
-            };
+                  // --- KNOWLEDGE GRAPH EXPORT LOGIC ---
+                  function showStatus(text, color, bgColor) {
+                      const statusMsg = document.getElementById('statusMessage');
+                      statusMsg.style.display = 'block';
+                      statusMsg.style.color = color;
+                      statusMsg.style.backgroundColor = bgColor;
+                      statusMsg.innerText = text;
+                      setTimeout(() => { statusMsg.style.display = 'none'; }, 5000);
+                  }
 
-            if (!payload.entity_name || !payload.summary) {
-                statusMsg.style.color = '#f87171';
-                statusMsg.innerText = "⚠️ Primary Entity Name and Summary are required.";
-                return;
-            }
+                  async function exportMarkdown() {
+                      const payload = {
+                          entity_name: document.getElementById('entityName').value.trim(),
+                          aliases: document.getElementById('entityAliases').value.split(',').map(s => s.trim()).filter(Boolean),
+                          connections: document.getElementById('entityConnections').value.split(',').map(s => s.trim()).filter(Boolean),
+                          source_file: document.getElementById('sourceFile').value.trim(),
+                          summary: document.getElementById('entitySummary').value.trim()
+                      };
 
-            try {
-                const response = await fetch('/api/export_markdown', {
-                    method: 'POST',
-                    headers: authHeaders,
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (response.ok) {
-                    statusMsg.style.color = 'var(--success-color)';
-                    statusMsg.innerText = `✅ Successfully generated: ${data.file}`;
-                } else {
-                    throw new Error(data.detail || "Export failed");
-                }
-            } catch (err) {
-                statusMsg.style.color = '#f87171';
-                statusMsg.innerText = `❌ Export error: ${err.message}`;
-            }
-        }
-    </script>
+                      if (!payload.entity_name || !payload.summary) {
+                          showStatus("⚠️ Primary Entity Name and Summary are required.", 'var(--error-color)', 'rgba(239, 68, 68, 0.1)');
+                          return;
+                      }
+
+                      try {
+                          const response = await fetch('/api/export_markdown', {
+                              method: 'POST',
+                              headers: authHeaders,
+                              body: JSON.stringify(payload)
+                          });
+                          const data = await response.json();
+
+                          if (response.ok) {
+                              showStatus(`✅ Exported: ${data.file || payload.entity_name + '.md'}`, 'var(--success-color)', 'rgba(16, 185, 129, 0.1)');
+                          } else {
+                              throw new Error(data.detail || "Export rejected by server.");
+                          }
+                      } catch (err) {
+                          showStatus(`❌ Export Error: ${err.message}`, 'var(--error-color)', 'rgba(239, 68, 68, 0.1)');
+                      }
+                  }
+
+                  // --- MEDIA DROPZONE LOGIC ---
+                  const dropzone = document.getElementById('dropzone');
+                  const fileInput = document.getElementById('fileInput');
+
+                  if (dropzone) {
+                      ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                          dropzone.addEventListener(eventName, preventDefaults, false);
+                      });
+
+                      ['dragenter', 'dragover'].forEach(eventName => {
+                          dropzone.addEventListener(eventName, () => dropzone.classList.add('dragover'), false);
+                      });
+
+                      ['dragleave', 'drop'].forEach(eventName => {
+                          dropzone.addEventListener(eventName, () => dropzone.classList.remove('dragover'), false);
+                      });
+
+                      dropzone.addEventListener('drop', handleDrop, false);
+                  }
+
+                  if (fileInput) {
+                      fileInput.addEventListener('change', function() { handleFiles(this.files); });
+                  }
+
+                  function preventDefaults(e) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                  }
+
+                  function handleDrop(e) {
+                      const dt = e.dataTransfer;
+                      const files = dt.files;
+                      handleFiles(files);
+                  }
+
+                  async function handleFiles(files) {
+                      ([...files]).forEach(async file => {
+                          dropzone.innerHTML = `<div class="drop-icon">⚙️</div><h3>Computing hashes for ${file.name}...</h3>`;
+
+                          const formData = new FormData();
+                          formData.append('file', file);
+
+                          try {
+                              const response = await fetch('/api/media/upload', {
+                                  method: 'POST',
+                                  headers: {
+                                      'X-MFA-Verified': 'True',
+                                      'X-GFIPM-ICAC-Active': 'True',
+                                      'X-GFIPM-User-ID': 'Investigator_UI'
+                                  },
+                                  body: formData
+                              });
+
+                              const result = await response.json();
+
+                              if (result.status === "MATCH") {
+                                  dropzone.classList.add('dragover');
+                                  dropzone.innerHTML = `
+                                      <div class="drop-icon" style="color: var(--error-color)">🚨</div>
+                                      <h3 style="color: var(--error-color)">ILLICIT MATERIAL DETECTED</h3>
+                                      <p>${result.filename} matched local database via ${result.type}.</p>
+                                      <p style="font-weight:bold; margin-top: 0.5rem;">Linked: Case ${result.case}</p>`;
+                              } else {
+                                  dropzone.innerHTML = `
+                                      <div class="drop-icon" style="color: var(--success-color)">✅</div>
+                                      <h3 style="color: var(--success-color)">FILE CLEARED</h3>
+                                      <p>${result.filename} found no matches in the local DB.</p>`;
+                              }
+                          } catch (e) {
+                              dropzone.innerHTML = `<div class="drop-icon" style="color: var(--error-color)">❌</div><h3>Connection Error</h3><p>Could not reach the database container.</p>`;
+                          }
+
+                          setTimeout(() => {
+                              dropzone.classList.remove('dragover');
+                              dropzone.innerHTML = `
+                                  <div class="drop-icon">📁</div>
+                                  <h3>Drag & Drop Evidence Files Here</h3>
+                                  <p>Supports .JPG, .PNG, .MP4, .MOV</p>
+                                  <button onclick="document.getElementById('fileInput').click()" style="margin-top: 1rem; background-color: var(--panel-bg); border: 1px solid var(--border-color);">Or Browse Files</button>`;
+                          }, 6000);
+                      });
+                  }
+
+                  // --- DATABASE INGESTION LOGIC ---
+                  async function ingestToDatabase() {
+                      const caseId = document.getElementById('ingestCaseId').value.trim();
+                      const classification = document.getElementById('ingestClass').value.trim();
+                      const fileInput = document.getElementById('ingestFile');
+                      const statusMsg = document.getElementById('ingestStatusMsg');
+                      const ingestBtn = document.getElementById('ingestBtn');
+
+                      if (!caseId || !classification || fileInput.files.length === 0) {
+                          statusMsg.style.display = 'block';
+                          statusMsg.style.color = 'var(--error-color)';
+                          statusMsg.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                          statusMsg.innerText = "⚠️ Case ID, Classification, and a File are required.";
+                          return;
+                      }
+
+                      ingestBtn.disabled = true;
+                      ingestBtn.innerText = "Computing & Saving...";
+
+                      const formData = new FormData();
+                      formData.append('case_reference', caseId);
+                      formData.append('classification', classification);
+                      formData.append('file', fileInput.files[0]);
+
+                      try {
+                          const response = await fetch('/api/media/ingest', {
+                              method: 'POST',
+                              headers: {
+                                  'X-MFA-Verified': 'True',
+                                  'X-GFIPM-ICAC-Active': 'True',
+                                  'X-GFIPM-User-ID': 'Investigator_UI'
+                              },
+                              body: formData
+                          });
+
+                          const result = await response.json();
+
+                          if (response.ok) {
+                              statusMsg.style.display = 'block';
+                              statusMsg.style.color = 'var(--success-color)';
+                              statusMsg.style.backgroundColor = 'rgba(16, 185, 129, 0.1)';
+                              statusMsg.innerText = `✅ ${result.message}`;
+
+                              document.getElementById('ingestCaseId').value = '';
+                              fileInput.value = '';
+                          } else {
+                              throw new Error(result.detail || "Database insertion failed.");
+                          }
+                      } catch (err) {
+                          statusMsg.style.display = 'block';
+                          statusMsg.style.color = 'var(--error-color)';
+                          statusMsg.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                          statusMsg.innerText = `❌ Error: ${err.message}`;
+                      } finally {
+                          ingestBtn.disabled = false;
+                          ingestBtn.innerText = "Compute Hashes & Save to DB";
+                      }
+                  }
+              </script>
 </body>
 </html>

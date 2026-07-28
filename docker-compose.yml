@@ -1,55 +1,83 @@
-
-
 services:
-  # 1. The Core Hardware-Accelerated LLM Backend
+  # 1. DATABASE: PostgreSQL Hash Storage
+  sentinel-db:
+    image: postgres:15-alpine
+    container_name: sentinel-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sentinel_admin
+      POSTGRES_PASSWORD: secure_local_password
+      POSTGRES_DB: vic_hashes
+    volumes:
+      - sentinel-db-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - sentinel-lan
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel_admin -d vic_hashes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. The Core Hardware-Accelerated LLM Backend
   inference-engine:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: sentinel-inference-node
+    restart: unless-stopped
     devices:
-      - /dev/dri:/dev/dri # Maps host Vulkan GPU drivers to the container
+      - /dev/dri:/dev/dri
     volumes:
-      - ./mock_evidence:/evidence:ro # Strictly read-only evidence mount
-    command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/qwen2.5-coder-7b-instruct-ghidra-v2-q4_k_m.ggufsudo "]
-    # command: ["--host", "0.0.0.0", "--port", "8080", "-m", "/models/qwen-3.5-9b-instruct-q4_k_m.gguf"]
+      - ./mock_evidence:/evidence:ro
+      - ./models:/models:ro
+    command: ["--model", "/models/qwen2.5-coder-7b-instruct-ghidra-v2-q4_k_m.gguf", "--host", "0.0.0.0", "--port", "8080", "--ctx-size", "8192", "--parallel", "4"]
     networks:
       - sentinel-lan
 
-  # 2. The CJIS-Compliant API & WebUI
+  # 3. The CJIS-Compliant API & WebUI
   middleware-ui:
     build:
       context: .
       dockerfile: Dockerfile.services
     container_name: sentinel-middleware
+    restart: unless-stopped
     environment:
-      # Directs traffic to the internal Docker network hostname of the inference engine
-      - LLAMA_API_URL=http://inference-engine:8080/completion 
+      - LLAMA_API_URL=http://inference-engine:8080/completion
+      - DATABASE_URL=postgresql://sentinel_admin:secure_local_password@sentinel-db:5432/vic_hashes
     ports:
-      - "3000:3000" # Only the UI is exposed to the host machine
+      - "3000:3000"
     volumes:
-      - ./knowledge_graph_exports:/app/knowledge_graph_exports # Read/Write for Obsidian exports
-      - ./cjis_audit.log:/app/cjis_audit.log # Append-only audit log
+      - ./knowledge_graph_exports:/app/knowledge_graph_exports
+      - ./cjis_audit.log:/app/cjis_audit.log
     command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "3000"]
     depends_on:
-      - inference-engine
+      sentinel-db:
+        condition: service_healthy
+      inference-engine:
+        condition: service_started
     networks:
       - sentinel-lan
 
-  # 3. The Automated Project VIC Watchdog
+  # 4. The Automated Project VIC Watchdog
   media-pipeline:
     build:
       context: .
       dockerfile: Dockerfile.services
     container_name: sentinel-media-pipeline
+    restart: unless-stopped
     volumes:
-      - ./mock_evidence:/app/mock_evidence:ro # Strictly read-only evidence mount
-      - ./mock_vics_database.json:/app/mock_vics_database.json:ro
+      - ./mock_evidence:/app/mock_evidence:ro
     command: ["python", "media_pipeline.py"]
+    depends_on:
+      sentinel-db:
+        condition: service_healthy
     networks:
       - sentinel-lan
 
-# Define the isolated internal network
 networks:
   sentinel-lan:
     driver: bridge
+
+volumes:
+  sentinel-db-data:

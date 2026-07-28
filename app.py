@@ -1,27 +1,50 @@
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 import httpx
 import os
 import datetime
 import logging
 import json
+import re
+import aiofiles
+import asyncpg
+import hashlib
+import imagehash
+from PIL import Image
+import io
 
-app = FastAPI(title="Sentinel Edge Node UI")
+# ---------------------------------------------------------
+# Database Connection Pool Lifespan
+# ---------------------------------------------------------
+db_pool = None
+DB_URL = os.getenv("DATABASE_URL", "postgresql://sentinel_admin:secure_local_password@sentinel-db:5432/vic_hashes")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global db_pool
+    # Connect to PostgreSQL on startup
+    db_pool = await asyncpg.create_pool(DB_URL)
+    yield
+    # Close pool on shutdown
+    await db_pool.close()
+
+app = FastAPI(title="Sentinel Edge Node UI", lifespan=lifespan)
 
 # Directory & Template setups
 EXPORT_DIR = "./knowledge_graph_exports"
 os.makedirs(EXPORT_DIR, exist_ok=True)
 templates = Jinja2Templates(directory="templates")
 
-# Updated to use the chat completions endpoint for GBNF JSON Schema support
 LLAMA_API_URL = os.getenv("LLAMA_API_URL", "http://inference-engine:8080/completion")
 
 # Models
 class QueryRequest(BaseModel):
     prompt: str
-    
+
 class ExportRequest(BaseModel):
     entity_name: str
     aliases: list[str]
@@ -29,9 +52,9 @@ class ExportRequest(BaseModel):
     summary: str
     source_file: str
 
-class FederatedSearchRequest(BaseModel):
-    QueryID: str
-    TargetEntity: dict
+class HashVerifyRequest(BaseModel):
+    hash_type: str
+    hash_value: str
 
 # ---------------------------------------------------------
 # NIEM CORE SCHEMAS & PROMPTS
@@ -85,7 +108,7 @@ NIEM_JSON_SCHEMA = {
     "additionalProperties": False
 }
 
-SYSTEM_PROMPT = """You are an automated law enforcement intelligence extractor running in a secure, zero-knowledge environment. 
+SYSTEM_PROMPT = """You are an automated law enforcement intelligence extractor running in a secure, zero-knowledge environment.
 Your objective is to read raw, unstructured case files, chat logs, and investigator notes, and extract critical entities.
 
 Rules for Extraction:
@@ -96,7 +119,7 @@ Rules for Extraction:
 """
 
 # ---------------------------------------------------------
-# Security Matrix: ABAC & Zero-Knowledge Auditing
+# Security & Auditing (Kept from previous version)
 # ---------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
@@ -106,38 +129,29 @@ logging.basicConfig(
 audit_logger = logging.getLogger("CJIS_Audit")
 
 async def verify_cjis_attributes(request: Request):
-    """
-    Validates GFIPM attributes and hardware MFA token status.
-    Blocks requests from unauthorized attributes.
-    """
     user_id = request.headers.get("X-GFIPM-User-ID", "UNKNOWN_USER")
     is_icac_active = request.headers.get("X-GFIPM-ICAC-Active", "False")
     mfa_verified = request.headers.get("X-MFA-Verified", "False")
 
     if mfa_verified != "True":
-        audit_logger.warning(f"Event: Authentication_Failed | UserID: {user_id} | Reason: Missing hardware MFA token")
+        audit_logger.warning(f"Event: Authentication_Failed | UserID: {user_id} | Reason: Missing MFA token")
         raise HTTPException(status_code=401, detail="Hardware MFA token required.")
-
     if is_icac_active != "True":
-        audit_logger.warning(f"Event: Access_Denied | UserID: {user_id} | Reason: Lacks required active ICAC task force attribute")
+        audit_logger.warning(f"Event: Access_Denied | UserID: {user_id} | Reason: Lacks ICAC attribute")
         raise HTTPException(status_code=403, detail="ABAC Violation: Required attributes not met.")
     return user_id
 
 @app.middleware("http")
 async def zero_knowledge_audit_middleware(request: Request, call_next):
-    """
-    Logs API interactions without recording query contents.
-    """
     endpoint = request.url.path
     user_id = request.headers.get("X-GFIPM-User-ID", "UNAUTHENTICATED")
     response = await call_next(request)
-    
-    # Zero-Knowledge logging (body/query text is strictly excluded)
-    audit_logger.info(f"Event: API_Transaction | UserID: {user_id} | Endpoint: {endpoint} | Status: {response.status_code}")
+    if not endpoint.startswith(("/static", "/favicon")):
+        audit_logger.info(f"Event: API_Transaction | UserID: {user_id} | Endpoint: {endpoint} | Status: {response.status_code}")
     return response
 
 # ---------------------------------------------------------
-# Application Routes
+# Core API Routes
 # ---------------------------------------------------------
 @app.get("/")
 async def serve_ui(request: Request):
@@ -168,44 +182,25 @@ async def query_model(request: QueryRequest):
             result = response.json()
             # The output is mathematically guaranteed to be valid JSON formatted to NIEM specs
             extracted_data = json.loads(result["choices"][0]["message"]["content"])
+
+            # Zero-Knowledge logging (body/query text is strictly excluded)
+            audit_logger.info(f"Event: LLM_Extraction_Complete | Status: Success")
+
             return {"status": "success", "data": extracted_data}
+
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=500, detail=f"Inference engine error: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Middleware Communication Error: {str(e)}")
 
-@app.post("/api/federated_search", dependencies=[Depends(verify_cjis_attributes)])
-async def handle_federated_search(request: FederatedSearchRequest):
-    """
-    Receives a NIEM broadcast from the Hub.
-    Executes a localized check and returns a boolean match status.
-    """
-    target_aliases = request.TargetEntity.get("Aliases", [])
-    
-    # Zero-Knowledge Logging for inbound federated queries
-    audit_logger.info(f"Event: Inbound_Federated_Query | QueryID: {request.QueryID}")
-    
-    # ---------------------------------------------------------
-    # In a fully integrated system, the node would pass the target 
-    # aliases to the local llama.cpp container to run a vector 
-    # similarity search against the embedded mock_evidence directory.
-    # ---------------------------------------------------------
-    
-    # Mock logic: Assuming the model found a match for "DarkNet_Phantom"
-    match_found = "DarkNet_Phantom" in target_aliases
-    
-    return {
-        "query_id": request.QueryID,
-        "match_found": match_found,
-        "agency_contact": "precinct_admin@local.gov" # Only contact info is returned, no evidence
-    }
-
 @app.post("/api/export_markdown", dependencies=[Depends(verify_cjis_attributes)])
 async def export_to_markdown(request: ExportRequest):
     timestamp = datetime.date.today().isoformat()
-    safe_name = request.entity_name.replace(" ", "_")
+
+    # SECURITY FIX: Strip all special characters to prevent path traversal
+    safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '', request.entity_name.replace(" ", "_"))
     filename = f"{EXPORT_DIR}/Entity_{safe_name}.md"
-    
+
     markdown_content = f"""---
 case_id: UNASSIGNED
 entity_type: extracted_entity
@@ -219,7 +214,7 @@ date_extracted: {timestamp}
 """
     for conn in request.connections:
         markdown_content += f"* [[{conn}]]\n"
-        
+
     markdown_content += f"""
 ## AI Extraction Summary
 {request.summary}
@@ -228,13 +223,116 @@ date_extracted: {timestamp}
 * **Source File:** `{request.source_file}`
 """
     try:
-        with open(filename, "w") as f:
-            f.write(markdown_content)
+        # ASYNC FIX: Use aiofiles to prevent blocking the FastAPI event loop
+        async with aiofiles.open(filename, "w") as f:
+            await f.write(markdown_content)
+
+        audit_logger.info(f"Event: KNOWLEDGE_GRAPH_EXPORT | Entity: {safe_name}")
         return JSONResponse(content={"status": "success", "file": filename})
+
     except Exception as e:
+        audit_logger.error(f"Event: EXPORT_ERROR | Detail: {str(e)}")
         raise HTTPException(status_code=500, detail=f"File write failure: {str(e)}")
+
+# ---------------------------------------------------------
+# NEW: Database Verification Routes
+# ---------------------------------------------------------
+
+@app.post("/api/media/ingest", dependencies=[Depends(verify_cjis_attributes)])
+async def ingest_media_to_db(
+    case_reference: str = Form(...),
+    classification: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """Computes file hashes and permanently adds them to the PostgreSQL database."""
+    contents = await file.read()
+
+    # 1. Compute Exact Hash
+    sha256_hash = hashlib.sha256(contents).hexdigest()
+
+    # 2. Compute Perceptual Hash (if applicable)
+    phash_val = None
+    if file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+        try:
+            img = Image.open(io.BytesIO(contents))
+            phash_val = str(imagehash.phash(img))
+        except Exception as e:
+            audit_logger.error(f"Image processing failed during ingest for {file.filename}: {e}")
+
+    # 3. Insert into Database
+    async with db_pool.acquire() as conn:
+        # Insert the exact SHA-256 hash
+        await conn.execute(
+            "INSERT INTO vic_hashes (hash_type, hash_value, classification, case_reference) VALUES ('SHA256', $1, $2, $3)",
+            sha256_hash, classification, case_reference
+        )
+
+        # Insert the perceptual hash if it was generated
+        if phash_val:
+            await conn.execute(
+                "INSERT INTO vic_hashes (hash_type, hash_value, classification, case_reference) VALUES ('PHASH', $1, $2, $3)",
+                phash_val, classification, case_reference
+            )
+
+    # 4. Zero-Knowledge Audit Log
+    audit_logger.info(f"Event: DATABASE_INGEST | Case: {case_reference} | Classification: {classification}")
+
+    return {
+        "status": "SUCCESS",
+        "message": f"Hashes for {file.filename} permanently added to local VIC database."
+    }
+
+@app.post("/api/hashes/verify", dependencies=[Depends(verify_cjis_attributes)])
+async def verify_hash_backend(request: HashVerifyRequest):
+    """Used by the local watchdog pipeline to verify a hash against PostgreSQL."""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT classification, case_reference FROM vic_hashes WHERE hash_type = $1 AND hash_value = $2",
+            request.hash_type, request.hash_value
+        )
+        if row:
+            audit_logger.critical(f"Event: VIC_MATCH | Hash: {request.hash_value} | Case: {row['case_reference']}")
+            return {"match": True, "classification": row["classification"], "case": row["case_reference"]}
+        return {"match": False}
+
+@app.post("/api/media/upload", dependencies=[Depends(verify_cjis_attributes)])
+async def process_media_upload(file: UploadFile = File(...)):
+    """Used by the Web UI Drag-and-Drop. Hashes in memory, checks DB, discards file."""
+    contents = await file.read()
+
+    # Compute Exact Hash
+    sha256_hash = hashlib.sha256(contents).hexdigest()
+
+    # Compute Perceptual Hash if Image
+    phash_val = None
+    if file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+        try:
+            img = Image.open(io.BytesIO(contents))
+            phash_val = str(imagehash.phash(img))
+        except Exception as e:
+            audit_logger.error(f"Image processing failed for {file.filename}: {e}")
+
+    # Check Database
+    async with db_pool.acquire() as conn:
+        # Check Exact First
+        row = await conn.fetchrow(
+            "SELECT case_reference FROM vic_hashes WHERE hash_type = 'SHA256' AND hash_value = $1",
+            sha256_hash
+        )
+        if row:
+            return {"status": "MATCH", "type": "SHA256", "case": row["case_reference"], "filename": file.filename}
+
+        # Check Perceptual Second
+        if phash_val:
+            row = await conn.fetchrow(
+                "SELECT case_reference FROM vic_hashes WHERE hash_type = 'PHASH' AND hash_value = $1",
+                phash_val
+            )
+            if row:
+                return {"status": "MATCH", "type": "PHASH", "case": row["case_reference"], "filename": file.filename}
+
+    return {"status": "CLEARED", "filename": file.filename}
 
 if __name__ == "__main__":
     import uvicorn
-    # Binds only to localhost to ensure it remains strictly on the internal LAN
-    uvicorn.run(app, host="127.0.0.1", port=3000)
+    uvicorn.run(app, host="0.0.0.0", port=3000)
