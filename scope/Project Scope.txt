@@ -1,0 +1,76 @@
+﻿Project Scope: Federated Law Enforcement Intelligence Network (Project Sentinel)
+1. Executive Summary & Objective
+The objective of Project Sentinel is to build a secure, decentralized, and federated artificial intelligence and search broker network. The system will enable localized, low-resource law enforcement agencies to collaborate on child exploitation and trafficking investigations. It achieves this by sharing search queries and machine learning insights (mathematical weights) globally without ever centralizing, copying, or transmitting sensitive, restricted case files or illicit media.
+2. Architecture & System Topography
+The system uses a hub-and-spoke model consisting of a central Federated Search Broker (Hub) and containerized Edge Inference Nodes (Spokes) deployed locally at participating law enforcement agencies.
+
+
+
+2.1 Central Federated Search Broker (Hub)
+    • Role: An orchestration layer hosted on a secure web server. It stores no investigative data, no PII (Personally Identifiable Information), and no case text.
+    • Core Components:
+        ◦ Query Router: Broadcasts incoming standardized search requests to connected edge nodes and aggregates "match found" tallies.
+        ◦ Federated Learning Server: Coordinates training cycles, aggregates mathematical model weights from nodes, and builds updated global models.
+2.2 Local Edge Inference Node (Spoke)
+    • Role: A secure, containerized environment installed locally behind the agency's firewall.
+    • Core Components:
+        ◦ Data Translation Engine: Converts local database structures to unified schemas.
+        ◦ Local Inference Engine: Executes resource-optimized, local machine learning analysis.
+        ◦ Federated Learning Client: Handles localized model training and updates the central server with model parameters.
+3. Technical Specifications & Tech Stack
+The software stack must prioritize extreme optimization to allow deployment on consumer-grade or legacy server hardware typically found in local precincts.
+Component
+Technology / Framework
+Specification & Implementation Notes
+Containerization
+Docker / Podman
+Base image: Minimalist Linux (Alpine/Distroless) to reduce attack surface.
+Local Inference
+llama.cpp
+Configured to run highly quantized open-source LLMs (e.g., Llama-3-8B-Instruct in 4-bit GGUF format).
+Hardware Acceleration
+OpenBLAS / Vulkan
+Must compile dynamically. Use OpenBLAS for CPU-only arrays; map to Vulkan drivers to harness any consumer GPUs present on-site.
+Federated Learning
+Flower (flwr)
+Python-based client-server framework to securely aggregate parameter updates.
+Local Frontend
+Custom WebUI
+A locally hosted browser dashboard (similar to Open WebUI) accessible only via internal LAN.
+Broker Backend
+FastAPI / Go
+Asynchronous, highly performant API framework to minimize latency during federated queries.
+4. Security & CJIS Compliance Matrix
+To operate legally within public safety networks, the programmer must design the entire system to be strictly compliant with the FBI's Criminal Justice Information Services (CJIS) Security Policy.
+4.1 Authentication & Authorization
+    • Identity Federation: Support the Global Federated Identity and Privilege Management (GFIPM) standard. The broker must trust external identity providers managed by individual state police forces.
+    • Attribute-Based Access Control (ABAC): Access to the API endpoints is determined dynamically by querying the investigator's active attributes (e.g., Is the user currently assigned to an active Internet Crimes Against Children task force?).
+    • Multi-Factor Authentication (MFA): Hardware token verification (YubiKey or similar FIPS-approved device) required for all node and dashboard access.
+4.2 Data Protection & Cryptography
+    • Data at Rest: All locally compiled weights, configurations, and application states must be protected via FIPS 140-3 validated encryption modules (AES-256).
+    • Data in Transit: API traffic between nodes and the hub must be encapsulated via TLS 1.3 using strict cipher suites (ECDHE-RSA-AES256-GCM-SHA384).
+    • Chain of Custody Isolation: The Edge Node container must bind to evidence directories using an immutable, read-only volume mount. The container must have no technical capability to alter, write, delete, or export raw source files.
+4.3 Immutable Auditing
+    • Audit Logging: Implement an append-only, tamper-evident log stream. Every API transaction, query request, login attempt, and model update must log to a secure, external syslog server.
+    • Zero-Knowledge Records: Logs must record that an event occurred (e.g., User ID 9283 initiated Federated Query) but must never log the textual parameters or contents of the search itself.
+5. Data Translation & Schema (NIEM Compliance)
+The programmer must not build proprietary data payloads. The API must communicate using the National Information Exchange Model (NIEM) schema.
+    • Format: JSON-LD or XML payloads matching the NIEM Justice and Biometrics domains.
+    • Mapping: The local node must include an abstract translation layer where local DB columns (DOB, PlateNumber, ChatUser) map dynamically to NIEM Core entities (nc:PersonBirthDate, nc:VehicleLicensePlateIdentification, nc:UserOnlineAliasIdentity).
+6. Implementation Phases & Milestones
+    • Phase 1: Secure Container Development. Build the Dockerized edge node environment combining llama.cpp with Vulkan/OpenBLAS compilation. Verify local inference on low-tier hardware.
+    • Phase 2: Federated API & NIEM Broker. Build the central FastAPI search broker. Establish the NIEM translation schemas and execute automated end-to-end tests passing queries across mock nodes.
+    • Phase 3: Flower Framework Integration. Integrate the Flower framework into the node container. Verify that local fine-tuning on mock text files yields encrypted weight sets that successfully update a central global model.
+    • Phase 4: CJIS Security Hardening. Implement ABAC middleware, GFIPM metadata processing, FIPS 140-3 cryptography libraries, and the immutable logging system.
+7. Strategic Concept Extensions for Discussion
+While drafting this scope, three high-value architectural improvements emerged that should be evaluated before commencing the build:
+Idea A: Differential Privacy (DP) Noise Injection
+    • Concept: While federated learning does not share raw data, it is theoretically possible for an advanced adversary to perform an "inversion attack"—reconstructing fragments of case text by mathematically analyzing the difference in model weights over time.
+    • Implementation: Introduce a Differential Privacy layer within the Flower client. This adds a controlled amount of mathematical "noise" to the weights before transmission, legally and mathematically guaranteeing that raw text cannot be reverse-engineered from the global model.
+Idea B: Media Pipeline Automation (Project VIC Hashing)
+    • Concept: Linguistic analysis is only half the battle; child exploitation cases are heavily driven by media files.
+    • Implementation: Embed an automated perceptual media hashing mechanism directly within the Edge Node container. When a detective drops files into the local evidence folder, the node instantly computes PhotoDNA or MD5/SHA-256 hashes locally, checks them against the local Project VIC database, and queries the Federated Broker before the text model even begins running.
+Idea C: Markdown Knowledge Graph Integration (Obsidian-Ready Exports)
+    • Concept: Investigators need to visualize complex networks of suspects, phone numbers, and cross-jurisdictional connections without using cumbersome enterprise reporting tools.
+    • Implementation: Program the Edge Node UI to export intelligence reports as a structured folder of highly cross-linked, human-readable Markdown files. This allows detectives to drop the local AI's output directly into local document management software or network analysis applications like Obsidian, instantly generating a visual knowledge graph of their case connections offline.
+

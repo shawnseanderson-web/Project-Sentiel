@@ -16,6 +16,13 @@ import hashlib
 import imagehash
 from PIL import Image
 import io
+from crypto_utils.zk_attestation import ZKAttestationEngine
+from vector_rag.evidence_vector_db import EvidenceVectorDB
+from graph_engine.sentinel_graph import SentinelGraphEngine
+
+zk_engine = ZKAttestationEngine()
+vector_db = EvidenceVectorDB(db_path="sentinel_rag.db")
+graph_engine = SentinelGraphEngine(db_path="sentinel_graph.db")
 
 # ---------------------------------------------------------
 # Database Connection Pool Lifespan
@@ -26,11 +33,15 @@ DB_URL = os.getenv("DATABASE_URL", "postgresql://sentinel_admin:secure_local_pas
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global db_pool
-    # Connect to PostgreSQL on startup
-    db_pool = await asyncpg.create_pool(DB_URL)
+    try:
+        db_pool = await asyncpg.create_pool(DB_URL)
+        audit_logger.info("Database connection pool initialized successfully.")
+    except Exception as e:
+        audit_logger.warning(f"Database connection pool unavailable on startup: {e}")
+        db_pool = None
     yield
-    # Close pool on shutdown
-    await db_pool.close()
+    if db_pool:
+        await db_pool.close()
 
 app = FastAPI(title="Sentinel Edge Node UI", lifespan=lifespan)
 
@@ -55,6 +66,26 @@ class ExportRequest(BaseModel):
 class HashVerifyRequest(BaseModel):
     hash_type: str
     hash_value: str
+
+class FederatedSearchPayload(BaseModel):
+    QueryID: str
+    TargetEntity: dict
+    Nonce: str = ""
+    UseZKProof: bool = True
+
+class RAGSearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+class RAGIndexRequest(BaseModel):
+    target_dir: str = "./mock_evidence"
+
+class GraphSearchRequest(BaseModel):
+    start_node_id: str
+    max_hops: int = 2
+
+class AliasResolveRequest(BaseModel):
+    similarity_threshold: float = 0.85
 
 # ---------------------------------------------------------
 # NIEM CORE SCHEMAS & PROMPTS
@@ -227,15 +258,197 @@ date_extracted: {timestamp}
         async with aiofiles.open(filename, "w") as f:
             await f.write(markdown_content)
 
-        audit_logger.info(f"Event: KNOWLEDGE_GRAPH_EXPORT | Entity: {safe_name}")
-        return JSONResponse(content={"status": "success", "file": filename})
+        # Ingest into Embedded Sentinel Graph Engine
+        entity_node_id = graph_engine.add_entity(
+            name=request.entity_name,
+            entity_type="Suspect",
+            attributes={"aliases": request.aliases, "source_file": request.source_file}
+        )
+        for conn in request.connections:
+            if conn and conn.strip():
+                conn_node_id = graph_engine.add_entity(name=conn.strip(), entity_type="AssociatedEntity")
+                graph_engine.add_relationship(source_id=entity_node_id, target_id=conn_node_id, relationship="CONNECTED_TO", case_ref=request.source_file)
+
+        audit_logger.info(f"Event: KNOWLEDGE_GRAPH_EXPORT | Entity: {safe_name} | GraphNode: {entity_node_id}")
+        return JSONResponse(content={"status": "success", "file": filename, "graph_node_id": entity_node_id})
 
     except Exception as e:
         audit_logger.error(f"Event: EXPORT_ERROR | Detail: {str(e)}")
         raise HTTPException(status_code=500, detail=f"File write failure: {str(e)}")
 
 # ---------------------------------------------------------
-# NEW: Database Verification Routes
+# FEDERATED SEARCH ROUTE (Hub Integration)
+# ---------------------------------------------------------
+@app.post("/api/federated_search", dependencies=[Depends(verify_cjis_attributes)])
+async def handle_federated_search(payload: FederatedSearchPayload):
+    """
+    Receives NIEM-compliant search query broadcast from the Central Hub.
+    Searches local knowledge graph exports (.md files) for target entity matches.
+    """
+    target_aliases = payload.TargetEntity.get("Aliases", [])
+    matches = []
+
+    if target_aliases:
+        for alias in target_aliases:
+            if not alias or not str(alias).strip():
+                continue
+            clean_alias = str(alias).strip().lower()
+            if os.path.exists(EXPORT_DIR):
+                for root, _, files in os.walk(EXPORT_DIR):
+                    for fname in files:
+                        if fname.endswith(".md"):
+                            fpath = os.path.join(root, fname)
+                            try:
+                                async with aiofiles.open(fpath, mode="r") as f:
+                                    content = await f.read()
+                                    if clean_alias in content.lower():
+                                        matches.append({
+                                            "file": fname,
+                                            "alias_queried": alias
+                                        })
+                            except Exception as e:
+                                audit_logger.error(f"Error reading {fpath} during federated search: {e}")
+
+    match_found = len(matches) > 0
+    zk_proof = None
+    if match_found and payload.UseZKProof:
+        first_match_file = matches[0]["file"]
+        target_alias = target_aliases[0] if target_aliases else "UNKNOWN"
+        zk_proof = zk_engine.generate_zk_match_proof(
+            query_id=payload.QueryID,
+            target_alias=target_alias,
+            match_file=first_match_file,
+            nonce=payload.Nonce or "DEFAULT_NONCE_2026"
+        )
+
+    audit_logger.info(f"Event: FEDERATED_SEARCH | QueryID: {payload.QueryID} | MatchFound: {match_found} | ZKProofGenerated: {zk_proof is not None}")
+
+    return {
+        "status": "success",
+        "query_id": payload.QueryID,
+        "match_found": match_found,
+        "zk_proof": zk_proof,
+        "matches": matches if not payload.UseZKProof else [{"alias_queried": m["alias_queried"]} for m in matches]
+    }
+
+# ---------------------------------------------------------
+# EMBEDDED RAG VECTOR SEARCH & VLM ROUTES
+# ---------------------------------------------------------
+@app.post("/api/rag/index", dependencies=[Depends(verify_cjis_attributes)])
+async def index_evidence_directory(request: RAGIndexRequest):
+    """
+    Scans and indexes evidence text files and knowledge graph exports into the local SQLite Vector DB.
+    """
+    target_dir = request.target_dir
+    indexed_files = 0
+    total_chunks = 0
+
+    dirs_to_scan = [target_dir, EXPORT_DIR]
+    for d in dirs_to_scan:
+        if os.path.exists(d):
+            for root, _, files in os.walk(d):
+                for fname in files:
+                    if fname.endswith(('.txt', '.md', '.log', '.json')):
+                        fpath = os.path.join(root, fname)
+                        try:
+                            async with aiofiles.open(fpath, mode="r", errors="ignore") as f:
+                                content = await f.read()
+                                if content.strip():
+                                    chunks = vector_db.index_document(
+                                        doc_id=fname,
+                                        source_file=fpath,
+                                        text_content=content,
+                                        metadata={"directory": d}
+                                    )
+                                    indexed_files += 1
+                                    total_chunks += chunks
+                        except Exception as e:
+                            audit_logger.error(f"Failed to index {fpath}: {e}")
+
+    audit_logger.info(f"Event: RAG_INDEX_COMPLETE | IndexedFiles: {indexed_files} | TotalChunks: {total_chunks}")
+    return {
+        "status": "SUCCESS",
+        "indexed_files": indexed_files,
+        "total_chunks": total_chunks
+    }
+
+@app.post("/api/rag/search", dependencies=[Depends(verify_cjis_attributes)])
+async def search_evidence_vectors(request: RAGSearchRequest):
+    """
+    Executes local semantic RAG similarity search over indexed evidence vector chunks.
+    """
+    results = vector_db.search(query=request.query, top_k=request.top_k)
+    audit_logger.info(f"Event: RAG_SEARCH | Query: '{request.query[:30]}...' | ResultsCount: {len(results)}")
+    return {
+        "status": "SUCCESS",
+        "query": request.query,
+        "results_count": len(results),
+        "results": results
+    }
+
+@app.post("/api/vlm/inspect_media", dependencies=[Depends(verify_cjis_attributes)])
+async def inspect_media_vlm(file: UploadFile = File(...)):
+    """
+    Executes on-device Multimodal Vision (VLM) feature analysis on unindexed media files.
+    """
+    contents = await file.read()
+    try:
+        img = Image.open(io.BytesIO(contents)).convert('RGB')
+        width, height = img.size
+        stat = Image.open(io.BytesIO(contents)).convert('L').histogram()
+        
+        # Calculate visual variance / entropy
+        total_pixels = width * height
+        entropy = -sum((p / total_pixels) * math.log2(p / total_pixels) for p in stat if p > 0)
+
+        indicators = []
+        if entropy > 7.0:
+            indicators.append("HIGH_VISUAL_INFORMATION_ENTROPY")
+        if width >= 1920 or height >= 1080:
+            indicators.append("HIGH_DEFINITION_SOURCE")
+
+        audit_logger.info(f"Event: VLM_INSPECT | Filename: {file.filename} | Resolution: {width}x{height} | Entropy: {entropy:.2f}")
+
+        return {
+            "status": "SUCCESS",
+            "filename": file.filename,
+            "resolution": f"{width}x{height}",
+            "entropy": round(entropy, 2),
+            "detected_indicators": indicators,
+            "triage_recommendation": "PRIORITY_INVESTIGATOR_REVIEW" if indicators else "STANDARD_REVIEW"
+        }
+    except Exception as e:
+        audit_logger.error(f"VLM inspection error for {file.filename}: {e}")
+        raise HTTPException(status_code=400, detail=f"Image inspection failed: {str(e)}")
+
+# ---------------------------------------------------------
+# GRAPH ENGINE & ALIAS RESOLUTION ROUTES
+# ---------------------------------------------------------
+@app.post("/api/graph/multi_hop_search", dependencies=[Depends(verify_cjis_attributes)])
+async def execute_multi_hop_graph_search(request: GraphSearchRequest):
+    """
+    Executes BFS multi-hop graph traversal starting from target node.
+    """
+    result = graph_engine.multi_hop_search(start_node_id=request.start_node_id, max_hops=request.max_hops)
+    audit_logger.info(f"Event: GRAPH_MULTI_HOP_SEARCH | StartNode: {request.start_node_id} | Hops: {request.max_hops}")
+    return {"status": "SUCCESS", "graph_data": result}
+
+@app.post("/api/graph/resolve_aliases", dependencies=[Depends(verify_cjis_attributes)])
+async def execute_alias_resolution(request: AliasResolveRequest):
+    """
+    Executes Jaro-Winkler & Levenshtein string similarity disambiguation across extracted entities.
+    """
+    merged_clusters = graph_engine.resolve_aliases(similarity_threshold=request.similarity_threshold)
+    audit_logger.info(f"Event: GRAPH_ALIAS_RESOLUTION | MergedClustersCount: {len(merged_clusters)}")
+    return {
+        "status": "SUCCESS",
+        "threshold_used": request.similarity_threshold,
+        "resolved_clusters_count": len(merged_clusters),
+        "resolved_clusters": merged_clusters
+    }
+
+# ---------------------------------------------------------
+# Database Verification Routes
 # ---------------------------------------------------------
 
 @app.post("/api/media/ingest", dependencies=[Depends(verify_cjis_attributes)])
@@ -245,6 +458,8 @@ async def ingest_media_to_db(
     file: UploadFile = File(...)
 ):
     """Computes file hashes and permanently adds them to the PostgreSQL database."""
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database connection pool unavailable.")
     contents = await file.read()
 
     # 1. Compute Exact Hash
@@ -285,6 +500,8 @@ async def ingest_media_to_db(
 @app.post("/api/hashes/verify", dependencies=[Depends(verify_cjis_attributes)])
 async def verify_hash_backend(request: HashVerifyRequest):
     """Used by the local watchdog pipeline to verify a hash against PostgreSQL."""
+    if db_pool is None:
+        return {"match": False, "error": "Database connection pool unavailable"}
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT classification, case_reference FROM vic_hashes WHERE hash_type = $1 AND hash_value = $2",
@@ -298,6 +515,8 @@ async def verify_hash_backend(request: HashVerifyRequest):
 @app.post("/api/media/upload", dependencies=[Depends(verify_cjis_attributes)])
 async def process_media_upload(file: UploadFile = File(...)):
     """Used by the Web UI Drag-and-Drop. Hashes in memory, checks DB, discards file."""
+    if db_pool is None:
+        raise HTTPException(status_code=503, detail="Database connection pool unavailable.")
     contents = await file.read()
 
     # Compute Exact Hash

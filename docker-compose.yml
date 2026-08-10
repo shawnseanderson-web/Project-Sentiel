@@ -5,16 +5,16 @@ services:
     container_name: sentinel-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: sentinel_admin
-      POSTGRES_PASSWORD: secure_local_password
-      POSTGRES_DB: vic_hashes
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_local_password}
+      POSTGRES_DB: ${POSTGRES_DB:-vic_hashes}
     volumes:
       - sentinel-db-data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - sentinel-lan
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sentinel_admin -d vic_hashes"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentinel_admin} -d ${POSTGRES_DB:-vic_hashes}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -43,8 +43,8 @@ services:
     container_name: sentinel-middleware
     restart: unless-stopped
     environment:
-      - LLAMA_API_URL=http://inference-engine:8080/completion
-      - DATABASE_URL=postgresql://sentinel_admin:secure_local_password@sentinel-db:5432/vic_hashes
+      - LLAMA_API_URL=${LLAMA_API_URL:-http://inference-engine:8080/completion}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://sentinel_admin:secure_local_password@sentinel-db:5432/vic_hashes}
     ports:
       - "3000:3000"
     volumes:
